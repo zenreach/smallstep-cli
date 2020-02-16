@@ -15,6 +15,7 @@ require (
 	github.com/smallstep/assert v0.0.0-20200103212524-b99dc1097b15
 	github.com/smallstep/certificates v0.14.0-rc.2.0.20200129195847-7846696fbb69
 	github.com/smallstep/certinfo v1.1.0
+	github.com/smallstep/nosql v0.2.1-0.20200213174000-bb64e2bbc1bf // indirect
 	github.com/smallstep/truststore v0.9.3
 	github.com/smallstep/zcrypto v0.0.0-20200203191936-fbc32cf76bce
 	github.com/smallstep/zlint v0.0.0-20180727184541-d84eaafe274f
