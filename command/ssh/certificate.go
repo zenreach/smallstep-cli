@@ -3,8 +3,6 @@ package ssh
 import (
 	"bytes"
 	"crypto"
-	"crypto/hmac"
-	"crypto/sha256"
 	"io/ioutil"
 	"net/url"
 	"strings"
@@ -465,20 +463,10 @@ func deriveMachineID() (uuid.UUID, error) {
 	if err != nil {
 		return uuid.Nil, err
 	}
-
-	// 32 bytes, not secret
-	key := []byte("moon machines mortify more minds")
-	mac := hmac.New(sha256.New, key)
-	mac.Write(machineID)
-	machineHash := mac.Sum(nil)
-
-	// convert to uuid, definitely not thread-safe
-	r := bytes.NewReader(machineHash)
-	uuid.SetRand(r)
-	defer uuid.SetRand(nil)
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return uuid.Nil, err
-	}
+	// 16 bytes, not secret
+	key := []byte("man moon machine")
+	var n uuid.UUID
+	copy(n[:], key)
+	u := uuid.NewSHA1(n, machineID)
 	return u, nil
 }
