@@ -16,6 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/smallstep/cli/aws"
 	"github.com/smallstep/cli/crypto/keys"
 	"github.com/smallstep/cli/errs"
 	"github.com/smallstep/cli/ui"
@@ -113,6 +114,19 @@ func WithPasswordFile(filename string) Options {
 func WithPasswordPrompt(prompt string) Options {
 	return func(ctx *context) error {
 		b, err := ui.PromptPassword(prompt, ui.WithValidateNotEmpty())
+		if err != nil {
+			return err
+		}
+		ctx.password = b
+		return nil
+	}
+}
+
+// WithPasswordAmazonSM will read the password from the Amazon
+// Secrets Manager and set the context to the value of the password
+func WithPasswordAmazonSM(arn string, fieldname string) Options {
+	return func(ctx *context) error {
+		b, err := aws.ReadSecretManagerSecret(arn, fieldname)
 		if err != nil {
 			return err
 		}

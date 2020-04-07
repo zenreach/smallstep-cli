@@ -5,6 +5,7 @@ go 1.13
 require (
 	github.com/Microsoft/go-winio v0.4.14
 	github.com/ThomasRooney/gexpect v0.0.0-20161231170123-5482f0350944
+	github.com/aws/aws-sdk-go v1.19.18
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/google/uuid v1.1.1
 	github.com/icrowley/fake v0.0.0-20180203215853-4178557ae428

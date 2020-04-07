@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 
 	"github.com/pkg/errors"
+	"github.com/smallstep/cli/aws"
 	"github.com/smallstep/cli/command"
 	"github.com/smallstep/cli/crypto/keys"
 	"github.com/smallstep/cli/crypto/pemutil"
@@ -170,6 +171,27 @@ Sensitive key material will be written to disk unencrypted. This is not
 recommended. Requires **--insecure** flag.`,
 			},
 			cli.StringFlag{
+				Name: "password-asm-arn",
+				Usage: `Pulls the password value from Amazon Secrets Manager.
+Specify the ARN or Alias of the Secret.  Must also specify password-asm-key.`,
+			},
+			cli.StringFlag{
+				Name: "password-asm-key",
+				Usage: `Specify the key value pair to extract from the Amazon Secrets
+Manager secret  Must also specify password-asm-arn.`,
+			},
+			cli.StringFlag{
+				Name: "issuer-password-asm-arn",
+				Usage: `Specifies the Amazon Secrets Manager ARN (or alias) that will
+decrypt the issuer's private key.
+Must also specify --issuer-password-asm-key.`,
+			},
+			cli.StringFlag{
+				Name: "issuer-password-asm-key",
+				Usage: `Specify the key value pair to extract from the Amazon Secrets
+Manager secret. Must also specify --issuer-password-asm-arn.`,
+			},
+			cli.StringFlag{
 				Name:  "profile",
 				Value: "leaf",
 				Usage: `The certificate profile sets various certificate details such as
@@ -228,6 +250,8 @@ the **--ca** flag.`,
 }
 
 func createAction(ctx *cli.Context) error {
+	var pass = []byte{}
+
 	if err := errs.NumberOfArguments(ctx, 3); err != nil {
 		return err
 	}
@@ -255,6 +279,13 @@ func createAction(ctx *cli.Context) error {
 	}
 	if !notAfter.IsZero() && !notBefore.IsZero() && notBefore.After(notAfter) {
 		return errs.IncompatibleFlagValues(ctx, "not-before", ctx.String("not-before"), "not-after", ctx.String("not-after"))
+	}
+	if ctx.String("password-asm-arn") != "" && ctx.String("password-asm-key") != "" {
+		password, err := aws.ReadSecretManagerSecret(ctx.String("password-asm-arn"), ctx.String("password-asm-key"))
+		pass = password
+		if err != nil {
+			return errs.NewExitError(err, 1)
+		}
 	}
 
 	var typ string
@@ -425,10 +456,11 @@ func createAction(ctx *cli.Context) error {
 			return errors.WithStack(err)
 		}
 	} else {
-		var pass []byte
-		pass, err = ui.PromptPassword("Please enter the password to encrypt the private key")
-		if err != nil {
-			return errors.Wrap(err, "error reading password")
+		if len(pass) == 0 {
+			pass, err = ui.PromptPassword("Please enter the password to encrypt the private key")
+			if err != nil {
+				return errors.Wrap(err, "error reading password")
+			}
 		}
 		_, err = pemutil.Serialize(priv, pemutil.WithPassword(pass),
 			pemutil.ToFile(keyFile, 0600))
@@ -444,11 +476,26 @@ func createAction(ctx *cli.Context) error {
 }
 
 func loadIssuerIdentity(ctx *cli.Context, profile, caPath, caKeyPath string) (*x509util.Identity, error) {
+	var issuerpass = []byte{}
+
 	if caPath == "" {
 		return nil, errs.RequiredWithFlagValue(ctx, "profile", profile, "ca")
 	}
 	if caKeyPath == "" {
 		return nil, errs.RequiredWithFlagValue(ctx, "profile", profile, "ca-key")
 	}
-	return x509util.LoadIdentityFromDisk(caPath, caKeyPath)
+	if ctx.String("issuer-password-asm-arn") != "" && ctx.String("issuer-password-asm-key") != "" {
+		password, err := aws.ReadSecretManagerSecret(ctx.String("issuer-password-asm-arn"), ctx.String("issuer-password-asm-key"))
+		issuerpass = password
+		if err != nil {
+			return nil, errs.NewExitError(err, 1)
+		}
+	}
+
+	var opt pemutil.Options
+	if len(issuerpass) > 0 {
+		opt = pemutil.WithPassword(issuerpass)
+	}
+
+	return x509util.LoadIdentityFromDisk(caPath, caKeyPath, opt)
 }
