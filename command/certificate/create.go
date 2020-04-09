@@ -334,7 +334,7 @@ func createAction(ctx *cli.Context) error {
 		if ctx.IsSet("profile") {
 			return errs.IncompatibleFlagWithFlag(ctx, "profile", "csr")
 		}
-		priv, err = keys.GenerateKey(kty, crv, size)
+		priv, err = keys.GenerateKey(kty, crv, size, subjectarn)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -489,7 +489,7 @@ func createAction(ctx *cli.Context) error {
 	return nil
 }
 
-func loadIssuerIdentity(ctx *cli.Context, profile, caPath, caKeyPath string, issuerarn string) (*x509util.Identity, error) {
+func loadIssuerIdentity(ctx *cli.Context, profile, caPath, caKeyPath string, arn string) (*x509util.Identity, error) {
 	var issuerpass = []byte{}
 
 	if caPath == "" {
@@ -511,5 +511,5 @@ func loadIssuerIdentity(ctx *cli.Context, profile, caPath, caKeyPath string, iss
 		opt = pemutil.WithPassword(issuerpass)
 	}
 
-	return x509util.LoadIdentityFromDisk(caPath, caKeyPath, opt)
+	return x509util.LoadIdentityFromDisk(caPath, caKeyPath, arn, opt)
 }

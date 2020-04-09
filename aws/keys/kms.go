@@ -26,7 +26,7 @@ func parseDER(b []byte) (interface{}, error) {
 	return key, nil
 }
 
-func SignAwsKms(arn string, region string, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+func SignAwsKms(arn string, region string, digest []byte, opts crypto.SignerOpts, kty string) ([]byte, error) {
 	//
 	// Connect to AWS and grab the public key
 	//
@@ -42,15 +42,31 @@ func SignAwsKms(arn string, region string, digest []byte, opts crypto.SignerOpts
 	// Choose the correct algorithm based upon the options
 	var signAlg string
 
-	switch opts.HashFunc() {
-	case crypto.SHA256:
-		signAlg = kms.SigningAlgorithmSpecRsassaPkcs1V15Sha256
-	case crypto.SHA384:
-		signAlg = kms.SigningAlgorithmSpecRsassaPkcs1V15Sha384
-	case crypto.SHA512:
-		signAlg = kms.SigningAlgorithmSpecRsassaPkcs1V15Sha512
+	switch kty {
+	case "AWS-KMS-RSA":
+		switch opts.HashFunc() {
+		case crypto.SHA256:
+			signAlg = kms.SigningAlgorithmSpecRsassaPkcs1V15Sha256
+		case crypto.SHA384:
+			signAlg = kms.SigningAlgorithmSpecRsassaPkcs1V15Sha384
+		case crypto.SHA512:
+			signAlg = kms.SigningAlgorithmSpecRsassaPkcs1V15Sha512
+		default:
+			return nil, errors.New("unsupported RSA signing algorithm")
+		}
+	case "AWS-KMS-EC":
+		switch opts.HashFunc() {
+		case crypto.SHA256:
+			signAlg = kms.SigningAlgorithmSpecEcdsaSha256
+		case crypto.SHA384:
+			signAlg = kms.SigningAlgorithmSpecEcdsaSha384
+		case crypto.SHA512:
+			signAlg = kms.SigningAlgorithmSpecEcdsaSha512
+		default:
+			return nil, errors.New("unsupported ECDSA signing algorithm")
+		}
 	default:
-		return nil, errors.New("unsupported signing algorithm")
+		return nil, errors.New("unknown signing algorithm")
 	}
 
 	request := kms.SignInput{

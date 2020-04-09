@@ -103,10 +103,10 @@ func signAction(ctx *cli.Context) error {
 
 	var issuerIdentity *x509util.Identity
 	if len(pass) > 0 {
-		issuerIdentity, err = x509util.LoadIdentityFromDisk(crtFile, keyFile,
+		issuerIdentity, err = x509util.LoadIdentityFromDisk(crtFile, keyFile, "",
 			pemutil.WithPassword(pass))
 	} else {
-		issuerIdentity, err = x509util.LoadIdentityFromDisk(crtFile, keyFile)
+		issuerIdentity, err = x509util.LoadIdentityFromDisk(crtFile, keyFile, "")
 	}
 
 	if err != nil {

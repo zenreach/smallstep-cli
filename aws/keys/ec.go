@@ -37,5 +37,5 @@ func (priv AwsEcPrivateKey) Public() crypto.PublicKey {
 // where the private part is kept in, for example, a hardware module. Common
 // uses should use the Sign* functions in this package directly.
 func (priv AwsEcPrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return nil, nil
+	return SignAwsKms(priv.ARN, "us-west-2", digest, opts, "AWS-KMS-EC")
 }

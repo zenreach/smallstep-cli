@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/aws/aws-sdk-go/service/kms"
-	"github.com/smallstep/cli/ui"
 )
 
 // AwsRsaPublicKey represents the public part of an RSA key.
@@ -36,6 +35,5 @@ func (priv AwsRsaPrivateKey) Public() crypto.PublicKey {
 // where the private part is kept in, for example, a hardware module. Common
 // uses should use the Sign* functions in this package directly.
 func (priv AwsRsaPrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	ui.Printf("AwsRsaPrivateKey.Sign - arn %s\n", priv.AwsRsaPublicKey.ARN)
-	return SignAwsKms(priv.ARN, "us-west-2", digest, opts)
+	return SignAwsKms(priv.ARN, "us-west-2", digest, opts, "AWS-KMS-RSA")
 }

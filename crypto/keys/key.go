@@ -66,7 +66,7 @@ func GenerateKey(kty, crv string, size int, option ...string) (interface{}, erro
 	case "EC":
 		return generateECKey(crv)
 	case "AWS-KMS-EC":
-		return awskeys.GenerateECKey(crv)
+		return awskeys.GenerateECKey(option[0])
 	case "RSA":
 		return generateRSAKey(size)
 	case "AWS-KMS-RSA":

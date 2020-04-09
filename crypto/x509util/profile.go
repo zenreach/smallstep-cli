@@ -16,7 +16,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/smallstep/cli/crypto/keys"
 	"github.com/smallstep/cli/crypto/pemutil"
-	"github.com/smallstep/cli/ui"
 	"github.com/smallstep/cli/utils"
 )
 
@@ -92,7 +91,6 @@ type WithOption func(Profile) error
 // key pair for a profile.
 func GenerateKeyPair(kty, crv string, size int, arn string) WithOption {
 	return func(p Profile) error {
-		ui.Printf("p.GenerateKeyPair arn - %s\n", arn)
 		return p.GenerateKeyPair(kty, crv, size, arn)
 	}
 }
