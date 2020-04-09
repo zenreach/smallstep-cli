@@ -1,27 +1,31 @@
-package ecdsa
+package keys
 
 import (
 	"crypto"
-	e "crypto/ecdsa"
+	"crypto/ecdsa"
 	"io"
+
+	"github.com/aws/aws-sdk-go/service/kms"
 )
 
 // AwsEcPublicKey represents the public part of an ECDSA key.
 type AwsEcPublicKey struct {
-	e.PublicKey
+	*ecdsa.PublicKey
+	ARN              string
+	Region           string
+	AwsPublicKeyInfo kms.GetPublicKeyOutput
 }
 
 // AwsEcPrivateKey represents an ECC key
 type AwsEcPrivateKey struct {
 	AwsEcPublicKey // public part.
-	ARN            string
 }
 
 // Public returns the public key corresponding to priv.
-func (priv *AwsEcPrivateKey) Public() crypto.PublicKey {
+func (priv AwsEcPrivateKey) Public() crypto.PublicKey {
 	// TODO read the Public Key and set the parms from
 	// the arn
-	return &priv.PublicKey
+	return priv.AwsEcPublicKey.PublicKey
 }
 
 // Sign signs digest with priv, reading randomness from rand. If opts is a
@@ -32,6 +36,6 @@ func (priv *AwsEcPrivateKey) Public() crypto.PublicKey {
 // This method implements crypto.Signer, which is an interface to support keys
 // where the private part is kept in, for example, a hardware module. Common
 // uses should use the Sign* functions in this package directly.
-func (priv *AwsEcPrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+func (priv AwsEcPrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return nil, nil
 }
