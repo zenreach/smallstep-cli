@@ -252,6 +252,10 @@ flag multiple times to configure multiple SANs.`,
 				Usage: `Bundle the new leaf certificate with the signing certificate. This flag requires
 the **--ca** flag.`,
 			},
+			cli.BoolFlag{
+				Name:  "no-subject-san",
+				Usage: `Don't automatically set the subject and the SAN`,
+			},
 			flags.KTY,
 			flags.Size,
 			flags.Curve,
@@ -313,7 +317,7 @@ func createAction(ctx *cli.Context) error {
 	}
 
 	sans := ctx.StringSlice("san")
-	if len(sans) == 0 {
+	if len(sans) == 0 && !ctx.Bool("no-subject-san") {
 		sans = []string{subject}
 	}
 	dnsNames, ips, emails := x509util.SplitSANs(sans)
@@ -326,6 +330,7 @@ func createAction(ctx *cli.Context) error {
 		issuerarn  = ctx.String("issuer-kms-arn")
 		subjectarn = ctx.String("subject-kms-arn")
 	)
+
 	switch typ {
 	case "x509-csr":
 		if bundle {
