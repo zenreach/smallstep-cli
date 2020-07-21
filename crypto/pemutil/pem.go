@@ -16,6 +16,8 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/smallstep/cli/aws"
+	awskeys "github.com/smallstep/cli/aws/keys"
 	"github.com/smallstep/cli/crypto/keys"
 	"github.com/smallstep/cli/errs"
 	"github.com/smallstep/cli/ui"
@@ -36,6 +38,7 @@ type context struct {
 	openSSH    bool
 	comment    string
 	firstBlock bool
+	arn        string
 }
 
 // newContext initializes the context with a filename.
@@ -117,6 +120,26 @@ func WithPasswordPrompt(prompt string) Options {
 			return err
 		}
 		ctx.password = b
+		return nil
+	}
+}
+
+// WithPasswordAmazonSM will read the password from the Amazon
+// Secrets Manager and set the context to the value of the password
+func WithPasswordAmazonSM(arn string, fieldname string) Options {
+	return func(ctx *context) error {
+		b, err := aws.ReadSecretManagerSecret(arn, fieldname)
+		if err != nil {
+			return err
+		}
+		ctx.password = b
+		return nil
+	}
+}
+
+func WithARN(arn string) Options {
+	return func(ctx *context) error {
+		ctx.arn = arn
 		return nil
 	}
 }
@@ -234,6 +257,11 @@ func Parse(b []byte, opts ...Options) (interface{}, error) {
 	ctx := newContext("PEM")
 	if err := ctx.apply(opts); err != nil {
 		return nil, err
+	}
+
+	if len(ctx.arn) > 0 {
+		priv, err := awskeys.ReadPrivateKey(ctx.arn)
+		return priv, err
 	}
 
 	block, rest := pem.Decode(b)
@@ -405,6 +433,8 @@ func Serialize(in interface{}, opts ...Options) (*pem.Block, error) {
 			Type:  "CERTIFICATE REQUEST",
 			Bytes: k.Raw,
 		}
+	case awskeys.AwsRsaPrivateKey:
+	case awskeys.AwsEcPrivateKey:
 	default:
 		return nil, errors.Errorf("cannot serialize type '%T', value '%v'", k, k)
 	}

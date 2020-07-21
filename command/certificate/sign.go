@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 
 	"github.com/pkg/errors"
+	"github.com/smallstep/cli/aws"
+	"github.com/smallstep/cli/crypto/pemutil"
 	"github.com/smallstep/cli/crypto/x509util"
 	"github.com/smallstep/cli/errs"
 	"github.com/urfave/cli"
@@ -54,6 +56,17 @@ $ step certificate sign ./certificate-signing-request.csr \
 				Name:  "bundle",
 				Usage: `Bundle the new leaf certificate with the signing certificate.`,
 			},
+			cli.StringFlag{
+				Name: "issuer-password-asm-arn",
+				Usage: `Specifies the Amazon Secrets Manager ARN (or alias) that will
+decrypt the issuer's private key.
+Must also specify --issuer-password-asm-key.`,
+			},
+			cli.StringFlag{
+				Name: "issuer-password-asm-key",
+				Usage: `Specify the key value pair to extract from the Amazon Secrets
+Manager secret. Must also specify --issuer-password-asm-arn.`,
+			},
 		},
 	}
 }
@@ -61,6 +74,15 @@ $ step certificate sign ./certificate-signing-request.csr \
 func signAction(ctx *cli.Context) error {
 	if err := errs.NumberOfArguments(ctx, 3); err != nil {
 		return err
+	}
+
+	pass := []byte{}
+	if ctx.String("issuer-password-asm-arn") != "" && ctx.String("issuer-password-asm-key") != "" {
+		password, err := aws.ReadSecretManagerSecret(ctx.String("issuer-password-asm-arn"), ctx.String("issuer-password-asm-key"))
+		pass = password
+		if err != nil {
+			return errs.NewExitError(err, 1)
+		}
 	}
 
 	csrFile := ctx.Args().Get(0)
@@ -79,7 +101,14 @@ func signAction(ctx *cli.Context) error {
 		return errors.Wrapf(err, "Certificate Request has invalid signature")
 	}
 
-	issuerIdentity, err := x509util.LoadIdentityFromDisk(crtFile, keyFile)
+	var issuerIdentity *x509util.Identity
+	if len(pass) > 0 {
+		issuerIdentity, err = x509util.LoadIdentityFromDisk(crtFile, keyFile, "",
+			pemutil.WithPassword(pass))
+	} else {
+		issuerIdentity, err = x509util.LoadIdentityFromDisk(crtFile, keyFile, "")
+	}
+
 	if err != nil {
 		return errors.WithStack(err)
 	}

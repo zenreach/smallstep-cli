@@ -68,7 +68,7 @@ type Profile interface {
 	SetSubjectPublicKey(interface{})
 	SetIssuerPrivateKey(interface{})
 	CreateCertificate() ([]byte, error)
-	GenerateKeyPair(string, string, int) error
+	GenerateKeyPair(string, string, int, string) error
 	DefaultDuration() time.Duration
 	CreateWriteCertificate(crtOut, keyOut, pass string) ([]byte, error)
 	AddExtension(pkix.Extension)
@@ -89,9 +89,9 @@ type WithOption func(Profile) error
 
 // GenerateKeyPair returns a Profile modifier that generates a public/private
 // key pair for a profile.
-func GenerateKeyPair(kty, crv string, size int) WithOption {
+func GenerateKeyPair(kty, crv string, size int, arn string) WithOption {
 	return func(p Profile) error {
-		return p.GenerateKeyPair(kty, crv, size)
+		return p.GenerateKeyPair(kty, crv, size, arn)
 	}
 }
 
@@ -359,8 +359,8 @@ func (b *base) DefaultDuration() time.Duration {
 	return DefaultCertValidity
 }
 
-func (b *base) GenerateKeyPair(kty, crv string, size int) error {
-	pub, priv, err := keys.GenerateKeyPair(kty, crv, size)
+func (b *base) GenerateKeyPair(kty, crv string, size int, options string) error {
+	pub, priv, err := keys.GenerateKeyPair(kty, crv, size, options)
 	if err != nil {
 		return err
 	}

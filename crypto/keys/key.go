@@ -12,6 +12,9 @@ import (
 
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/smallstep/cli/aws/keys"
+	awskeys "github.com/smallstep/cli/aws/keys"
 )
 
 var (
@@ -38,26 +41,36 @@ func PublicKey(priv interface{}) (interface{}, error) {
 		return &k.PublicKey, nil
 	case ed25519.PrivateKey:
 		return k.Public(), nil
+	case keys.AwsRsaPrivateKey:
+		return k.Public(), nil
+	case keys.AwsEcPrivateKey:
+		return k.Public(), nil
 	case *rsa.PublicKey, *ecdsa.PublicKey, ed25519.PublicKey:
 		return k, nil
+	case keys.AwsRsaPublicKey, keys.AwsEcPublicKey:
+		return k, nil
 	default:
-		return nil, errors.Errorf("unrecognized key type: %T", priv)
+		return nil, errors.Errorf("unrecognized key type ??: %T", priv)
 	}
 }
 
 // GenerateDefaultKey generates a public/private key pair using sane defaults
 // for key type, curve, and size.
 func GenerateDefaultKey() (interface{}, error) {
-	return GenerateKey(DefaultKeyType, DefaultKeyCurve, DefaultKeySize)
+	return GenerateKey(DefaultKeyType, DefaultKeyCurve, DefaultKeySize, "")
 }
 
 // GenerateKey generates a key of the given type (kty).
-func GenerateKey(kty, crv string, size int) (interface{}, error) {
+func GenerateKey(kty, crv string, size int, option ...string) (interface{}, error) {
 	switch kty {
 	case "EC":
 		return generateECKey(crv)
+	case "AWS-KMS-EC":
+		return awskeys.GenerateECKey(option[0])
 	case "RSA":
 		return generateRSAKey(size)
+	case "AWS-KMS-RSA":
+		return awskeys.GenerateRSAKey(option[0])
 	case "OKP":
 		return generateOKPKey(crv)
 	case "oct":

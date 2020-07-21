@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 
 	"github.com/pkg/errors"
+	"github.com/smallstep/cli/aws"
 	"github.com/smallstep/cli/command"
 	"github.com/smallstep/cli/crypto/keys"
 	"github.com/smallstep/cli/crypto/pemutil"
@@ -170,6 +171,39 @@ Sensitive key material will be written to disk unencrypted. This is not
 recommended. Requires **--insecure** flag.`,
 			},
 			cli.StringFlag{
+				Name: "password-asm-arn",
+				Usage: `Pulls the password value from Amazon Secrets Manager.
+Specify the ARN or Alias of the Secret.  Must also specify password-asm-key.`,
+			},
+			cli.StringFlag{
+				Name: "password-asm-key",
+				Usage: `Specify the key value pair to extract from the Amazon Secrets
+Manager secret  Must also specify password-asm-arn.`,
+			},
+			cli.StringFlag{
+				Name: "issuer-password-asm-arn",
+				Usage: `Specifies the Amazon Secrets Manager ARN (or alias) that will
+decrypt the issuer's private key.
+Must also specify --issuer-password-asm-key.`,
+			},
+			cli.StringFlag{
+				Name: "issuer-password-asm-key",
+				Usage: `Specify the key value pair to extract from the Amazon Secrets
+Manager secret. Must also specify --issuer-password-asm-arn.`,
+			},
+			cli.StringFlag{
+				Name:  "issuer-kms-arn",
+				Usage: `Uses the specified AWS KMS Key to perform signing operations for the issuer`,
+			},
+			cli.StringFlag{
+				Name:  "subject-kms-arn",
+				Usage: `Uses the specified AWS KMS Key to perform signing operations for the subject (the cert that is being created)`,
+			},
+			cli.BoolFlag{
+				Name:  "no-private-key",
+				Usage: `Enable this flag when using a external private key`,
+			},
+			cli.StringFlag{
 				Name:  "profile",
 				Value: "leaf",
 				Usage: `The certificate profile sets various certificate details such as
@@ -218,6 +252,10 @@ flag multiple times to configure multiple SANs.`,
 				Usage: `Bundle the new leaf certificate with the signing certificate. This flag requires
 the **--ca** flag.`,
 			},
+			cli.BoolFlag{
+				Name:  "no-subject-san",
+				Usage: `Don't automatically set the subject and the SAN`,
+			},
 			flags.KTY,
 			flags.Size,
 			flags.Curve,
@@ -228,6 +266,8 @@ the **--ca** flag.`,
 }
 
 func createAction(ctx *cli.Context) error {
+	var pass = []byte{}
+
 	if err := errs.NumberOfArguments(ctx, 3); err != nil {
 		return err
 	}
@@ -256,6 +296,13 @@ func createAction(ctx *cli.Context) error {
 	if !notAfter.IsZero() && !notBefore.IsZero() && notBefore.After(notAfter) {
 		return errs.IncompatibleFlagValues(ctx, "not-before", ctx.String("not-before"), "not-after", ctx.String("not-after"))
 	}
+	if ctx.String("password-asm-arn") != "" && ctx.String("password-asm-key") != "" {
+		password, err := aws.ReadSecretManagerSecret(ctx.String("password-asm-arn"), ctx.String("password-asm-key"))
+		pass = password
+		if err != nil {
+			return errs.NewExitError(err, 1)
+		}
+	}
 
 	var typ string
 	if ctx.Bool("csr") {
@@ -270,7 +317,7 @@ func createAction(ctx *cli.Context) error {
 	}
 
 	sans := ctx.StringSlice("san")
-	if len(sans) == 0 {
+	if len(sans) == 0 && !ctx.Bool("no-subject-san") {
 		sans = []string{subject}
 	}
 	dnsNames, ips, emails := x509util.SplitSANs(sans)
@@ -280,7 +327,10 @@ func createAction(ctx *cli.Context) error {
 		pubPEMs    []*pem.Block
 		outputType string
 		bundle     = ctx.Bool("bundle")
+		issuerarn  = ctx.String("issuer-kms-arn")
+		subjectarn = ctx.String("subject-kms-arn")
 	)
+
 	switch typ {
 	case "x509-csr":
 		if bundle {
@@ -289,7 +339,7 @@ func createAction(ctx *cli.Context) error {
 		if ctx.IsSet("profile") {
 			return errs.IncompatibleFlagWithFlag(ctx, "profile", "csr")
 		}
-		priv, err = keys.GenerateKey(kty, crv, size)
+		priv, err = keys.GenerateKey(kty, crv, size, subjectarn)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -334,12 +384,12 @@ func createAction(ctx *cli.Context) error {
 			switch prof {
 			case "leaf":
 				var issIdentity *x509util.Identity
-				issIdentity, err = loadIssuerIdentity(ctx, prof, caPath, caKeyPath)
+				issIdentity, err = loadIssuerIdentity(ctx, prof, caPath, caKeyPath, issuerarn)
 				if err != nil {
 					return errors.WithStack(err)
 				}
 				profile, err = x509util.NewLeafProfile(subject, issIdentity.Crt,
-					issIdentity.Key, x509util.GenerateKeyPair(kty, crv, size),
+					issIdentity.Key, x509util.GenerateKeyPair(kty, crv, size, subjectarn),
 					x509util.WithNotBeforeAfterDuration(notBefore, notAfter, 0),
 					x509util.WithDNSNames(dnsNames),
 					x509util.WithIPAddresses(ips),
@@ -349,13 +399,13 @@ func createAction(ctx *cli.Context) error {
 				}
 			case "intermediate-ca":
 				var issIdentity *x509util.Identity
-				issIdentity, err = loadIssuerIdentity(ctx, prof, caPath, caKeyPath)
+				issIdentity, err = loadIssuerIdentity(ctx, prof, caPath, caKeyPath, issuerarn)
 				if err != nil {
 					return errors.WithStack(err)
 				}
 				profile, err = x509util.NewIntermediateProfile(subject,
 					issIdentity.Crt, issIdentity.Key,
-					x509util.GenerateKeyPair(kty, crv, size),
+					x509util.GenerateKeyPair(kty, crv, size, subjectarn),
 					x509util.WithNotBeforeAfterDuration(notBefore, notAfter, 0),
 					x509util.WithDNSNames(dnsNames),
 					x509util.WithIPAddresses(ips),
@@ -366,7 +416,7 @@ func createAction(ctx *cli.Context) error {
 			}
 		case "root-ca":
 			profile, err = x509util.NewRootProfile(subject,
-				x509util.GenerateKeyPair(kty, crv, size),
+				x509util.GenerateKeyPair(kty, crv, size, subjectarn),
 				x509util.WithNotBeforeAfterDuration(notBefore, notAfter, 0),
 				x509util.WithDNSNames(dnsNames),
 				x509util.WithIPAddresses(ips),
@@ -379,7 +429,7 @@ func createAction(ctx *cli.Context) error {
 				return errs.RequiredWithFlagValue(ctx, "profile", "self-signed", "subtle")
 			}
 			profile, err = x509util.NewSelfSignedLeafProfile(subject,
-				x509util.GenerateKeyPair(kty, crv, size),
+				x509util.GenerateKeyPair(kty, crv, size, subjectarn),
 				x509util.WithNotBeforeAfterDuration(notBefore, notAfter, 0),
 				x509util.WithDNSNames(dnsNames),
 				x509util.WithIPAddresses(ips),
@@ -419,36 +469,52 @@ func createAction(ctx *cli.Context) error {
 		return errs.FileError(err, crtFile)
 	}
 
-	if noPass {
-		_, err = pemutil.Serialize(priv, pemutil.ToFile(keyFile, 0600))
-		if err != nil {
-			return errors.WithStack(err)
+	if !ctx.Bool("no-private-key") {
+		if noPass {
+			_, err = pemutil.Serialize(priv, pemutil.ToFile(keyFile, 0600))
+			if err != nil {
+				return errors.WithStack(err)
+			}
+		} else {
+			if len(pass) == 0 {
+				pass, err = ui.PromptPassword("Please enter the password to encrypt the private key")
+				if err != nil {
+					return errors.Wrap(err, "error reading password")
+				}
+			}
+			_, err = pemutil.Serialize(priv, pemutil.WithPassword(pass),
+				pemutil.ToFile(keyFile, 0600))
+			if err != nil {
+				return errors.WithStack(err)
+			}
 		}
-	} else {
-		var pass []byte
-		pass, err = ui.PromptPassword("Please enter the password to encrypt the private key")
-		if err != nil {
-			return errors.Wrap(err, "error reading password")
-		}
-		_, err = pemutil.Serialize(priv, pemutil.WithPassword(pass),
-			pemutil.ToFile(keyFile, 0600))
-		if err != nil {
-			return errors.WithStack(err)
-		}
+		ui.Printf("Your private key has been saved in %s.\n", keyFile)
 	}
-
 	ui.Printf("Your %s has been saved in %s.\n", outputType, crtFile)
-	ui.Printf("Your private key has been saved in %s.\n", keyFile)
-
 	return nil
 }
 
-func loadIssuerIdentity(ctx *cli.Context, profile, caPath, caKeyPath string) (*x509util.Identity, error) {
+func loadIssuerIdentity(ctx *cli.Context, profile, caPath, caKeyPath string, arn string) (*x509util.Identity, error) {
+	var issuerpass = []byte{}
+
 	if caPath == "" {
 		return nil, errs.RequiredWithFlagValue(ctx, "profile", profile, "ca")
 	}
 	if caKeyPath == "" {
 		return nil, errs.RequiredWithFlagValue(ctx, "profile", profile, "ca-key")
 	}
-	return x509util.LoadIdentityFromDisk(caPath, caKeyPath)
+	if ctx.String("issuer-password-asm-arn") != "" && ctx.String("issuer-password-asm-key") != "" {
+		password, err := aws.ReadSecretManagerSecret(ctx.String("issuer-password-asm-arn"), ctx.String("issuer-password-asm-key"))
+		issuerpass = password
+		if err != nil {
+			return nil, errs.NewExitError(err, 1)
+		}
+	}
+
+	var opt pemutil.Options
+	if len(issuerpass) > 0 {
+		opt = pemutil.WithPassword(issuerpass)
+	}
+
+	return x509util.LoadIdentityFromDisk(caPath, caKeyPath, arn, opt)
 }

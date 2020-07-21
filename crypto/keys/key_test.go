@@ -48,7 +48,7 @@ func TestGenerateKey_unrecognizedkt(t *testing.T) {
 	}
 
 	for i, tc := range failTests {
-		k, err := GenerateKey(tc.kt, tc.crv, tc.bits)
+		k, err := GenerateKey(tc.kt, tc.crv, tc.bits, "")
 		if assert.Error(t, err, i) {
 			assert.HasPrefix(t, err.Error(), tc.expected)
 			assert.Nil(t, k)
@@ -65,14 +65,14 @@ func TestGenerateKey_unrecognizedkt(t *testing.T) {
 	}
 
 	for i, tc := range ecdsaTests {
-		k, err := GenerateKey(tc.kt, tc.crv, 0)
+		k, err := GenerateKey(tc.kt, tc.crv, 0, "")
 		if assert.NoError(t, err, i) {
 			_, ok := k.(*ecdsa.PrivateKey)
 			assert.True(t, ok, i)
 		}
 	}
 
-	k, err := GenerateKey("RSA", "", 2048)
+	k, err := GenerateKey("RSA", "", 2048, "")
 	if assert.NoError(t, err) {
 		_, ok := k.(*rsa.PrivateKey)
 		assert.True(t, ok)
@@ -80,16 +80,16 @@ func TestGenerateKey_unrecognizedkt(t *testing.T) {
 }
 
 func TestExtractKey(t *testing.T) {
-	k, err := GenerateKey("RSA", "", 2048)
+	k, err := GenerateKey("RSA", "", 2048, "")
 	assert.FatalError(t, err)
 	rsaKey := k.(*rsa.PrivateKey)
-	k, err = GenerateKey("EC", "P-256", 0)
+	k, err = GenerateKey("EC", "P-256", 0, "")
 	assert.FatalError(t, err)
 	ecKey := k.(*ecdsa.PrivateKey)
-	k, err = GenerateKey("OKP", "Ed25519", 0)
+	k, err = GenerateKey("OKP", "Ed25519", 0, "")
 	assert.FatalError(t, err)
 	edKey := k.(ed25519.PrivateKey)
-	k, err = GenerateKey("oct", "", 64)
+	k, err = GenerateKey("oct", "", 64, "")
 	assert.FatalError(t, err)
 	octKey := k.([]byte)
 

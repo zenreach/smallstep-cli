@@ -22,7 +22,7 @@ func GetKeyDetailsFromCLI(ctx *cli.Context, insecure bool, ktyKey, curveKey, siz
 
 	if ctx.IsSet(ktyKey) {
 		switch kty {
-		case "RSA":
+		case "RSA", "AWS-KMS-RSA":
 			if !ctx.IsSet(sizeKey) {
 				size = DefaultRSASize
 			}
@@ -35,7 +35,7 @@ func GetKeyDetailsFromCLI(ctx *cli.Context, insecure bool, ktyKey, curveKey, siz
 			if size <= 0 {
 				return kty, crv, size, errs.MinSizeFlag(ctx, sizeKey, "0")
 			}
-		case "EC":
+		case "EC", "AWS-KMS-EC":
 			if ctx.IsSet("size") {
 				return kty, crv, size, errs.IncompatibleFlagValue(ctx, sizeKey, ktyKey, kty)
 			}

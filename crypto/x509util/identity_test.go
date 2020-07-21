@@ -50,9 +50,9 @@ func TestLoadIdentityFromDisk(t *testing.T) {
 			i   *Identity
 		)
 		if test.pass == "" {
-			i, err = LoadIdentityFromDisk(test.crtPath, test.keyPath)
+			i, err = LoadIdentityFromDisk(test.crtPath, test.keyPath, "")
 		} else {
-			i, err = LoadIdentityFromDisk(test.crtPath, test.keyPath,
+			i, err = LoadIdentityFromDisk(test.crtPath, test.keyPath, "",
 				pemutil.WithPassword([]byte(test.pass)))
 		}
 		if err != nil {

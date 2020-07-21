@@ -7,12 +7,20 @@ import (
 // GenerateDefaultKeyPair generates a public/private key pair using configured
 // default values for key type, curve, and size.
 func GenerateDefaultKeyPair() (interface{}, interface{}, error) {
-	return GenerateKeyPair(DefaultKeyType, DefaultKeyCurve, DefaultKeySize)
+	return GenerateKeyPair(DefaultKeyType, DefaultKeyCurve, DefaultKeySize, "")
 }
 
 // GenerateKeyPair creates an asymmetric crypto keypair using input configuration.
-func GenerateKeyPair(kty, crv string, size int) (interface{}, interface{}, error) {
-	priv, err := GenerateKey(kty, crv, size)
+func GenerateKeyPair(kty, crv string, size int, arn ...string) (interface{}, interface{}, error) {
+	var priv interface{}
+	var err error
+
+	if len(arn) > 0 {
+		priv, err = GenerateKey(kty, crv, size, arn[0])
+	} else {
+		priv, err = GenerateKey(kty, crv, size, "")
+	}
+
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
