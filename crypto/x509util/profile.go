@@ -3,6 +3,7 @@ package x509util
 import (
 	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -10,6 +11,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,6 +20,35 @@ import (
 	"github.com/smallstep/cli/crypto/pemutil"
 	"github.com/smallstep/cli/utils"
 )
+
+// Cribbed directly from golang src crypto/x509/x509.go
+var (
+	oidExtSubjectKeyID          = asn1.ObjectIdentifier([]int{2, 5, 29, 14})
+	oidExtKeyUsage              = asn1.ObjectIdentifier([]int{2, 5, 29, 15})
+	oidExtExtendedKeyUsage      = asn1.ObjectIdentifier([]int{2, 5, 29, 37})
+	oidExtAuthorityKeyID        = asn1.ObjectIdentifier([]int{2, 5, 29, 35})
+	oidExtBasicConstraints      = asn1.ObjectIdentifier([]int{2, 5, 29, 19})
+	oidExtSubjectAltName        = asn1.ObjectIdentifier([]int{2, 5, 29, 17})
+	oidExtCertificatePolicies   = asn1.ObjectIdentifier([]int{2, 5, 29, 32})
+	oidExtNameConstraints       = asn1.ObjectIdentifier([]int{2, 5, 29, 30})
+	oidExtCRLDistributionPoints = asn1.ObjectIdentifier([]int{2, 5, 29, 31})
+	oidExtAuthorityInfoAccess   = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 5, 5, 7, 1, 1})
+	oidStdExtHashMap            = map[string]struct{}{}
+	emptyStruct                 struct{}
+)
+
+func init() {
+	oidStdExtHashMap[oidExtSubjectKeyID.String()] = emptyStruct
+	oidStdExtHashMap[oidExtKeyUsage.String()] = emptyStruct
+	oidStdExtHashMap[oidExtExtendedKeyUsage.String()] = emptyStruct
+	oidStdExtHashMap[oidExtAuthorityKeyID.String()] = emptyStruct
+	oidStdExtHashMap[oidExtBasicConstraints.String()] = emptyStruct
+	oidStdExtHashMap[oidExtSubjectAltName.String()] = emptyStruct
+	oidStdExtHashMap[oidExtCertificatePolicies.String()] = emptyStruct
+	oidStdExtHashMap[oidExtNameConstraints.String()] = emptyStruct
+	oidStdExtHashMap[oidExtCRLDistributionPoints.String()] = emptyStruct
+	oidStdExtHashMap[oidExtAuthorityInfoAccess.String()] = emptyStruct
+}
 
 var (
 	// DefaultCertValidity is the minimum validity of an end-entity (not root or intermediate) certificate.
@@ -207,6 +238,30 @@ func WithEmailAddresses(emails []string) WithOption {
 	}
 }
 
+// WithURIs returns a Profile modifier which sets the URIs
+// that will be bound to the subject alternative name extension of the Certificate.
+func WithURIs(uris []*url.URL) WithOption {
+	return func(p Profile) error {
+		crt := p.Subject()
+		crt.URIs = uris
+		return nil
+	}
+}
+
+// WithSANs returns a profile modifier which set the dnsNames, emailAddresses,
+// ipAddresses, and URIs attributes of the Certificate.
+func WithSANs(sans []string) WithOption {
+	return func(p Profile) error {
+		dnsNames, ips, emails, uris := SplitSANs(sans)
+		cert := p.Subject()
+		cert.DNSNames = dnsNames
+		cert.IPAddresses = ips
+		cert.EmailAddresses = emails
+		cert.URIs = uris
+		return nil
+	}
+}
+
 // WithHosts returns a Profile modifier which sets the DNS Names and IP Addresses
 // that will be bound to the subject Certificate.
 //
@@ -277,12 +332,11 @@ func newProfile(p Profile, sub, iss *x509.Certificate, issPriv crypto.PrivateKey
 	}
 
 	if sub.SubjectKeyId == nil {
-		pubBytes, err := x509.MarshalPKIXPublicKey(p.SubjectPublicKey())
+		id, err := generateSubjectKeyID(p.SubjectPublicKey())
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to marshal public key to bytes")
+			return nil, err
 		}
-		hash := sha1.Sum(pubBytes)
-		sub.SubjectKeyId = hash[:] // takes slice over the whole array
+		sub.SubjectKeyId = id
 	}
 
 	if sub.SerialNumber == nil {
@@ -382,7 +436,8 @@ func (b *base) GenerateDefaultKeyPair() error {
 // CreateCertificate creates an x509 Certificate using the configuration stored
 // in the profile.
 func (b *base) CreateCertificate() ([]byte, error) {
-	if b.SubjectPublicKey() == nil {
+	pub := b.SubjectPublicKey()
+	if pub == nil {
 		return nil, errors.Errorf("Profile does not have subject public key. Need to call 'profile.GenerateKeyPair(...)' or use setters to populate keys")
 	}
 	if b.issPriv == nil {
@@ -395,7 +450,29 @@ func (b *base) CreateCertificate() ([]byte, error) {
 		sub.ExtraExtensions = append(sub.ExtraExtensions, b.ext...)
 	}
 
-	bytes, err := x509.CreateCertificate(rand.Reader, sub, iss, b.SubjectPublicKey(), b.issPriv)
+	// Remove KeyEncipherment and DataEncipherment for non-rsa keys.
+	// See:
+	// https://github.com/golang/go/issues/36499
+	// https://tools.ietf.org/html/draft-ietf-lamps-5480-ku-clarifications-02
+	if _, ok := pub.(*rsa.PublicKey); !ok {
+		sub.KeyUsage &= ^x509.KeyUsageKeyEncipherment
+		sub.KeyUsage &= ^x509.KeyUsageDataEncipherment
+	}
+
+	// Only keep those extensions that are not considered standard x509 Ext as
+	// defined in RFC 5280 4.2.1. The x509/crypto lib applies extra (often
+	// necessary) logic when converting x509 templates to certificates -- but
+	// that logic is superseded by extensions in the ExtraExtensions list, which
+	// are copied to the certificate verbatim.
+	var exts []pkix.Extension
+	for _, ext := range sub.ExtraExtensions {
+		if _, ok := oidStdExtHashMap[ext.Id.String()]; !ok {
+			exts = append(exts, ext)
+		}
+	}
+	sub.ExtraExtensions = exts
+
+	bytes, err := x509.CreateCertificate(rand.Reader, sub, iss, pub, b.issPriv)
 	return bytes, errors.WithStack(err)
 }
 
@@ -419,4 +496,29 @@ func (b *base) CreateWriteCertificate(crtOut, keyOut, pass string) ([]byte, erro
 		return nil, errors.WithStack(err)
 	}
 	return crtBytes, nil
+}
+
+// subjectPublicKeyInfo is a PKIX public key structure defined in RFC 5280.
+type subjectPublicKeyInfo struct {
+	Algorithm        pkix.AlgorithmIdentifier
+	SubjectPublicKey asn1.BitString
+}
+
+// generateSubjectKeyID generates the key identifier according the the RFC 5280
+// section 4.2.1.2.
+//
+// The keyIdentifier is composed of the 160-bit SHA-1 hash of the value of the
+// BIT STRING subjectPublicKey (excluding the tag, length, and number of unused
+// bits).
+func generateSubjectKeyID(pub crypto.PublicKey) ([]byte, error) {
+	b, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshaling public key")
+	}
+	var info subjectPublicKeyInfo
+	if _, err = asn1.Unmarshal(b, &info); err != nil {
+		return nil, errors.Wrap(err, "error unmarshaling public key")
+	}
+	hash := sha1.Sum(info.SubjectPublicKey.Bytes)
+	return hash[:], nil
 }

@@ -309,15 +309,14 @@ func certificateAction(ctx *cli.Context) error {
 				return errs.Wrap(err, "failed parsing uuid urn")
 			}
 
-			// Hack to add the URI.
-			// TODO: the proper solution would be to add support in
-			// x509util.SplitSANs.
 			template := &x509.CertificateRequest{
 				Subject:        csr.Subject,
 				DNSNames:       csr.DNSNames,
 				IPAddresses:    csr.IPAddresses,
 				EmailAddresses: csr.EmailAddresses,
-				URIs:           []*url.URL{uri},
+				// Prepend the generated uri. There is code that expects the
+				// uuid URI to be the first one.
+				URIs: append([]*url.URL{uri}, csr.URIs...),
 			}
 			csrBytes, err := x509.CreateCertificateRequest(rand.Reader, template, key)
 			if err != nil {
@@ -446,7 +445,7 @@ func certificateAction(ctx *cli.Context) error {
 	}
 
 	// Write Add User keys and certs
-	if isAddUser {
+	if isAddUser && resp.AddUserCertificate != nil {
 		id := provisioner.SanitizeSSHUserPrincipal(subject) + "-provisioner"
 		if _, err := pemutil.Serialize(auPriv, pemutil.WithOpenSSH(true), pemutil.ToFile(baseName+"-provisioner", 0600)); err != nil {
 			return err
@@ -486,10 +485,10 @@ func certificateAction(ctx *cli.Context) error {
 		}
 	}
 
-	if isAddUser {
-		ui.PrintSelected("Provisioner Private Key", baseName+"-provisioner")
-		ui.PrintSelected("Provisioner Public Key", baseName+"-provisioner.pub")
-		ui.PrintSelected("Provisioner Certificate", baseName+"-provisioner-cert.pub")
+	if isAddUser && resp.AddUserCertificate != nil {
+		ui.PrintSelected("Add User Private Key", baseName+"-provisioner")
+		ui.PrintSelected("Add User Public Key", baseName+"-provisioner.pub")
+		ui.PrintSelected("Add User Certificate", baseName+"-provisioner-cert.pub")
 	}
 
 	return nil

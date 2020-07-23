@@ -3,19 +3,23 @@ package certificate
 import (
 	"crypto/x509"
 	"fmt"
+	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/smallstep/cli/crypto/pemutil"
 	"github.com/smallstep/cli/crypto/x509util"
 	"github.com/smallstep/cli/errs"
+	"github.com/smallstep/cli/flags"
 	"github.com/urfave/cli"
 )
 
 func fingerprintCommand() cli.Command {
 	return cli.Command{
-		Name:      "fingerprint",
-		Action:    cli.ActionFunc(fingerprintAction),
-		Usage:     "print the fingerprint of a certificate",
-		UsageText: `**step certificate fingerprint** <crt-file>`,
+		Name:   "fingerprint",
+		Action: cli.ActionFunc(fingerprintAction),
+		Usage:  "print the fingerprint of a certificate",
+		UsageText: `**step certificate fingerprint** <crt-file>
+[**--bundle**] [**--roots**=<root-bundle>] [**--servername**=<servername>] [**--format**=<format>]`,
 		Description: `**step certificate fingerprint** reads a certificate and prints to STDOUT the
 certificate SHA256 of the raw certificate.
 
@@ -75,6 +79,11 @@ authenticity of the remote server.
 				Usage: `Use an insecure client to retrieve a remote peer certificate. Useful for
 debugging invalid certificates remotely.`,
 			},
+			flags.ServerName,
+			cli.StringFlag{
+				Name:  "format",
+				Usage: `The <format> of the fingerprint, it must be "hex", "base64" or "base64-url".`,
+			},
 		},
 	}
 }
@@ -85,16 +94,24 @@ func fingerprintAction(ctx *cli.Context) error {
 	}
 
 	var (
-		certs    []*x509.Certificate
-		err      error
-		roots    = ctx.String("roots")
-		bundle   = ctx.Bool("bundle")
-		insecure = ctx.Bool("insecure")
-		crtFile  = ctx.Args().First()
+		certs      []*x509.Certificate
+		serverName = ctx.String("servername")
+		roots      = ctx.String("roots")
+		bundle     = ctx.Bool("bundle")
+		insecure   = ctx.Bool("insecure")
+		crtFile    = ctx.Args().First()
+		format     = ctx.String("format")
 	)
 
-	if _, addr, isURL := trimURLPrefix(crtFile); isURL {
-		certs, err = getPeerCertificates(addr, roots, insecure)
+	encoding, err := getFingerprintFormat(format)
+	if err != nil {
+		return err
+	}
+
+	if addr, isURL, err := trimURL(crtFile); err != nil {
+		return err
+	} else if isURL {
+		certs, err = getPeerCertificates(addr, serverName, roots, insecure)
 		if err != nil {
 			return err
 		}
@@ -111,10 +128,22 @@ func fingerprintAction(ctx *cli.Context) error {
 
 	for i, crt := range certs {
 		if bundle {
-			fmt.Printf("%d: %s\n", i, x509util.Fingerprint(crt))
+			fmt.Printf("%d: %s\n", i, x509util.EncodedFingerprint(crt, encoding))
 		} else {
-			fmt.Println(x509util.Fingerprint(crt))
+			fmt.Println(x509util.EncodedFingerprint(crt, encoding))
 		}
 	}
 	return nil
+}
+
+func getFingerprintFormat(format string) (x509util.FingerprintEncoding, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "hex", "":
+		return x509util.HexFingerprint, nil
+	case "base64":
+		return x509util.Base64Fingerprint, nil
+	case "base64url", "base64-url":
+		return x509util.Base64UrlFingerprint, nil
+	}
+	return x509util.HexFingerprint, errors.Errorf("error parsing fingerprint format: '%s' is not a valid certificate fingerprint format", format)
 }
